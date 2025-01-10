@@ -1,0 +1,51 @@
+networks:
+  common.network:
+    driver: bridge
+ 
+volumes:
+  mongo.one.vol:
+    name: "mongo.one.vol"
+ 
+  mongo.two.vol:
+    name: "mongo.two.vol"
+ 
+  mongo.three.vol:
+    name: "mongo.three.vol"
+
+services: 
+  mongo.one.db:
+    container_name: mongo.one.db
+    image: mongo:7.0.0-jammy
+    networks:
+      common.network:
+    ports:
+      - 27018:27017
+    volumes:
+      - mongo.one.vol:/data/db
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "dbrs" ]
+ 
+  mongo.two.db:
+    container_name: mongo.two.db
+    image: mongo:7.0.0-jammy
+    networks:
+      common.network:
+    ports:
+      - 27019:27017
+    depends_on:
+      - mongo.one.db
+    volumes:
+      - mongo.two.vol:/data/db
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "dbrs" ]
+ 
+  mongo.three.db:
+    container_name: mongo.three.db
+    image: mongo:7.0.0-jammy
+    networks:
+      common.network:
+    ports:
+      - 27020:27017
+    depends_on:
+      - mongo.one.db      
+    volumes:
+      - mongo.three.vol:/data/db
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "dbrs" ]
