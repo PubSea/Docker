@@ -1,0 +1,12 @@
+services:
+  ValkeyService:
+    image: valkey/valkey:8-alpine3.21
+    networks:
+      - shared_network
+    container_name: ValkeyContainer
+    ports:
+      - "6379:6379"
+
+networks:
+  shared_network:
+    external: true

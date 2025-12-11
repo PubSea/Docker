@@ -21,7 +21,7 @@ services:
     environment:
       SNUBA_SETTINGS: docker
       CLICKHOUSE_HOST: clickhouse
-      REDIS_HOST: host.docker.internal
+      REDIS_HOST: ValkeyService
       REDIS_PORT: 6379
       BROKER_CONFIG__BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       KAFKA_BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
@@ -41,7 +41,7 @@ services:
     environment:
       SNUBA_SETTINGS: docker
       CLICKHOUSE_HOST: clickhouse
-      REDIS_HOST: host.docker.internal
+      REDIS_HOST: ValkeyService
       REDIS_PORT: 6379
       BROKER_CONFIG__BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       KAFKA_BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
@@ -57,12 +57,12 @@ services:
       - "9009:9000"
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: host.docker.internal
+      SENTRY_POSTGRES_HOST: PostgresDbService
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
       SENTRY_DB_NAME: sentry
-      SENTRY_REDIS_HOST: host.docker.internal
+      SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
       SENTRY_EVENT_RETENTION_DAYS: 90
     depends_on:
@@ -75,12 +75,12 @@ services:
     restart: unless-stopped
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: host.docker.internal
+      SENTRY_POSTGRES_HOST: PostgresDbService
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
       SENTRY_DB_NAME: sentry
-      SENTRY_REDIS_HOST: host.docker.internal
+      SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
       SENTRY_EVENT_RETENTION_DAYS: 90
     depends_on:
@@ -93,12 +93,12 @@ services:
     restart: unless-stopped
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: host.docker.internal
+      SENTRY_POSTGRES_HOST: PostgresDbService
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
       SENTRY_DB_NAME: sentry
-      SENTRY_REDIS_HOST: host.docker.internal
+      SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
     command: ["sentry", "run", "cron"]
     depends_on:

@@ -1,6 +1,8 @@
 services:
-  db:
+  PostgresDbService:
     image: docker.arvancloud.ir/postgres:17.4
+    networks:
+      - shared_network
     container_name: local_pgdb
     ports:
       - "5432:5432"
@@ -12,3 +14,7 @@ services:
 
 volumes:
   local_pgdata:
+
+networks:
+  shared_network:
+    external: true
