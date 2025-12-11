@@ -1,0 +1,5 @@
+docker network create shared_network
+
+docker compose run --rm snuba-api bootstrap --force
+
+docker compose run --rm sentry-web sentry upgrade
