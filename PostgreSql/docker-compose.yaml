@@ -1,6 +1,6 @@
 services:
   PostgresDbService:
-    image: docker.arvancloud.ir/postgres:17.4
+    image: postgres:18.1
     networks:
       - shared_network
     container_name: local_pgdb
@@ -10,10 +10,10 @@ services:
       POSTGRES_USER: farshad
       POSTGRES_PASSWORD: fF@123456
     volumes:
-      - local_pgdata:/var/lib/postgresql/data
+      - local_pg:/var/lib/postgresql
 
 volumes:
-  local_pgdata:
+  local_pg:
 
 networks:
   shared_network:
