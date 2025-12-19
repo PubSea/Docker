@@ -1,0 +1,54 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector:0.143.0-nightly.f0a80cc
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC receiver
+    networks:
+      - shared_network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "6831:6831/udp" # UDP port for Jaeger agent
+      - "16686:16686" # Web UI
+      - "14268:14268" # HTTP port for spans
+    networks:
+      - shared_network
+
+  prometheus:
+    image: prom/prometheus:v3.8.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - shared_network
+
+  grafana:
+    image: grafana/grafana:12.3
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3333:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - shared_network
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  shared_network:
+    external: true
