@@ -28,7 +28,6 @@ services:
       DEFAULT_BROKERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
     depends_on:
       - clickhouse
-
     command: api
 
   snuba-consumer:
@@ -101,6 +100,21 @@ services:
       SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
     command: ["sentry", "run", "cron"]
+    depends_on:
+      - sentry-web
+
+  sentry-relay:
+    image: ghcr.io/getsentry/relay:latest
+    networks:
+      - shared_network
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      RELAY_MODE: proxy
+      RELAY_UPSTREAM_URL: http://sentry-web:9000
+    volumes:
+      - ./relay:/work/.relay
     depends_on:
       - sentry-web
 

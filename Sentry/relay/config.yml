@@ -1,0 +1,10 @@
+relay:
+  upstream: "http://sentry-web:9000"
+  mode: proxy
+
+logging:
+  level: INFO
+
+cors:
+  allowed-origins:
+    - "*"

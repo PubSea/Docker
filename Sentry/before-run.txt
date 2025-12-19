@@ -5,3 +5,10 @@ run docker composes related to Valkey, Kraft Kafka and Postgres
 docker compose run --rm snuba-api bootstrap --force
 
 docker compose run --rm sentry-web sentry upgrade
+
+docker run --rm `
+  -v ${PWD}\relay:/work/.relay `
+  ghcr.io/getsentry/relay:latest `
+  credentials generate
+
+
