@@ -1,18 +1,24 @@
 services:
-  clickhouse:
+  ClickhouseService:
     image: clickhouse/clickhouse-server:23
-    networks:
-      - shared_network
+    container_name: clickhouse
     restart: unless-stopped
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - shared_network
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8123/"]
+      interval: 5s
+      retries: 10
 
-  snuba-api:
-    image: ghcr.io/getsentry/snuba:latest
+  SnubaApi:
+    container_name: snuba-api
+    image: getsentry/snuba:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
@@ -20,35 +26,55 @@ services:
       - "1218:1218"
     environment:
       SNUBA_SETTINGS: docker
-      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HOST: ClickhouseService
       REDIS_HOST: ValkeyService
       REDIS_PORT: 6379
       BROKER_CONFIG__BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       KAFKA_BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       DEFAULT_BROKERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
     depends_on:
-      - clickhouse
+      - ClickhouseService
     command: api
 
-  snuba-consumer:
-    image: ghcr.io/getsentry/snuba:latest
+  SnubaConsumerService:
+    container_name: snuba-consumer
+    image: getsentry/snuba:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
-    depends_on:
-      - snuba-api
     environment:
       SNUBA_SETTINGS: docker
-      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HOST: ClickhouseService
       REDIS_HOST: ValkeyService
       REDIS_PORT: 6379
       BROKER_CONFIG__BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       KAFKA_BOOTSTRAP_SERVERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
       DEFAULT_BROKERS: "Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092"
+    depends_on:
+      - SnubaApi
     command: consumer --storage errors --auto-offset-reset=earliest
 
-  sentry-web:
-    image: sentry:latest
+  SentryUpgradeService:
+    image: getsentry/sentry:24.12.1
+    networks:
+      - shared_network
+    environment:
+      SENTRY_TSDB: ""
+      SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
+      SENTRY_POSTGRES_HOST: PostgresDbService
+      SENTRY_POSTGRES_PORT: 5432
+      SENTRY_DB_USER: farshad
+      SENTRY_DB_PASSWORD: fF@123456
+      SENTRY_DB_NAME: sentry
+      SENTRY_REDIS_HOST: ValkeyService
+      SENTRY_REDIS_PORT: 6379
+    command: ["sentry", "upgrade", "--noinput"]
+    depends_on:
+      - SnubaApi
+
+  SentryWebService:
+    container_name: sentry-web
+    image: getsentry/sentry:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
@@ -64,11 +90,14 @@ services:
       SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
       SENTRY_EVENT_RETENTION_DAYS: 90
+      SENTRY_ALLOW_ORIGIN: "*"
     depends_on:
-      - snuba-api
+      - SnubaApi
+      - ClickhouseService
 
-  sentry-worker:
-    image: sentry:latest
+  SentryWorkerService:
+    container_name: sentry-worker
+    image: getsentry/sentry:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
@@ -83,10 +112,11 @@ services:
       SENTRY_REDIS_PORT: 6379
       SENTRY_EVENT_RETENTION_DAYS: 90
     depends_on:
-      - sentry-web
+      - SentryWebService
 
-  sentry-cron:
-    image: sentry:latest
+  SentryCronService:
+    container_name: sentry-cron
+    image: getsentry/sentry:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
@@ -99,24 +129,25 @@ services:
       SENTRY_DB_NAME: sentry
       SENTRY_REDIS_HOST: ValkeyService
       SENTRY_REDIS_PORT: 6379
-    command: ["sentry", "run", "cron"]
     depends_on:
-      - sentry-web
+      - SentryWebService
+    command: ["sentry", "run", "cron"]
 
-  sentry-relay:
-    image: ghcr.io/getsentry/relay:latest
+  SentryRelayService:
+    container_name: sentry-relay
+    image: getsentry/relay:24.12.1
     networks:
       - shared_network
     restart: unless-stopped
     ports:
       - "3000:3000"
-    environment:
-      RELAY_MODE: proxy
-      RELAY_UPSTREAM_URL: http://sentry-web:9000
     volumes:
       - ./relay:/work/.relay
+      # - ./relay/credentials.json:/work/.relay/credentials.json
     depends_on:
-      - sentry-web
+      - SentryWebService
+      - SentryWorkerService
+      - SentryCronService
 
 volumes:
   clickhouse_data:
@@ -124,3 +155,4 @@ volumes:
 networks:
   shared_network:
     external: true
+

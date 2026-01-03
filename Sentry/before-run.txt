@@ -2,13 +2,13 @@ docker network create shared_network
 
 run docker composes related to Valkey, Kraft Kafka and Postgres
 
-docker compose run --rm snuba-api bootstrap --force
+docker compose run --rm SnubaApi bootstrap --force
 
-docker compose run --rm sentry-web sentry upgrade
+docker compose run --rm SentryUpgradeService
 
 docker run --rm `
   -v ${PWD}\relay:/work/.relay `
-  ghcr.io/getsentry/relay:latest `
+  getsentry/relay:24.12.1 `
   credentials generate
 
 
