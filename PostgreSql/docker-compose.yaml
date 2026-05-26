@@ -1,6 +1,6 @@
 services:
   PostgresDbService:
-    image: postgres:18.1
+    image: postgres:18.4
     networks:
       - shared_network
     container_name: local_pgdb

@@ -1,6 +1,6 @@
 services:
   ValkeyService:
-    image: valkey/valkey:8-alpine3.21
+    image: valkey/valkey:9.1.0
     networks:
       - shared_network
     container_name: ValkeyContainer
