@@ -1,0 +1,126 @@
+networks:
+  shared_network:
+    external: true
+
+volumes:
+  Kafka00:
+  Kafka01:
+  Kafka02:
+
+services:
+
+  Kafka00Service:
+    image: apache/kafka:4.3.0
+    container_name: Kafka00Container
+    hostname: Kafka00Service
+    ports:
+      - "10000:9094"
+    networks:
+      - shared_network
+    volumes:
+      - Kafka00:/var/lib/kafka/data
+    environment:
+      CLUSTER_ID: HsDBs9l6UUmQq7Y5E6bNlw
+
+      KAFKA_NODE_ID: 0
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://Kafka00Service:9092,EXTERNAL://127.0.0.1:10000
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@Kafka00Service:9093,1@Kafka01Service:9093,2@Kafka02Service:9093
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+
+  Kafka01Service:
+    image: apache/kafka:4.3.0
+    container_name: Kafka01Container
+    hostname: Kafka01Service
+    ports:
+      - "10001:9094"
+    networks:
+      - shared_network
+    volumes:
+      - Kafka01:/var/lib/kafka/data
+    environment:
+      CLUSTER_ID: HsDBs9l6UUmQq7Y5E6bNlw
+
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://Kafka01Service:9092,EXTERNAL://127.0.0.1:10001
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@Kafka00Service:9093,1@Kafka01Service:9093,2@Kafka02Service:9093
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+
+  Kafka02Service:
+    image: apache/kafka:4.3.0
+    container_name: Kafka02Container
+    hostname: Kafka02Service
+    ports:
+      - "10002:9094"
+    networks:
+      - shared_network
+    volumes:
+      - Kafka02:/var/lib/kafka/data
+    environment:
+      CLUSTER_ID: HsDBs9l6UUmQq7Y5E6bNlw
+
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://Kafka02Service:9092,EXTERNAL://127.0.0.1:10002
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@Kafka00Service:9093,1@Kafka01Service:9093,2@Kafka02Service:9093
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+
+  KafkaWebUiService:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: KafkaWebUiContainer
+    ports:
+      - "8080:8080"
+    networks:
+      - shared_network
+    environment:
+      KAFKA_CLUSTERS_0_NAME: Local-KRaft-Cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+  kafka-rest:
+    image: confluentinc/cp-kafka-rest:8.1.3
+    container_name: kafka-rest
+    ports:
+      - "8082:8082"
+    networks:
+      - shared_network
+    environment:
+      KAFKA_REST_BOOTSTRAP_SERVERS: Kafka00Service:9092,Kafka01Service:9092,Kafka02Service:9092
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082

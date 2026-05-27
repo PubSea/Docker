@@ -1,0 +1,4 @@
+docker network create shared_network
+
+if this error occurred "The node is not formatted" run the following command
+docker run --rm apache/kafka:4.3.0 kafka-storage.sh format --cluster-id HsDBs9l6UUmQq7Y5E6bNlw --config /opt/kafka/config/kraft/server.properties

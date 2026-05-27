@@ -1,0 +1,44 @@
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+
+blocks_storage:
+  backend: s3
+
+  s3:
+    endpoint: minio:9000
+    bucket_name: mimir-blocks
+    access_key_id: ROOTUSER
+    secret_access_key: CHANGEME123
+    insecure: true
+    native_aws_auth_enabled: false
+
+ruler_storage:
+  backend: s3
+
+  s3:
+    endpoint: minio:9000
+    bucket_name: mimir-ruler
+    access_key_id: ROOTUSER
+    secret_access_key: CHANGEME123
+    insecure: true
+    native_aws_auth_enabled: false
+
+alertmanager_storage:
+  backend: s3
+
+  s3:
+    endpoint: minio:9000
+    bucket_name: mimir-alertmanager
+    access_key_id: ROOTUSER
+    secret_access_key: CHANGEME123
+    insecure: true
+    native_aws_auth_enabled: false
+
+compactor:
+  data_dir: /tmp/mimir/compactor
+
+ingester:
+  ring:
+    replication_factor: 1

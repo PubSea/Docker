@@ -1,0 +1,101 @@
+services:
+
+  # ============================================
+  # Grafana
+  # ============================================
+  grafana:
+    image: grafana/grafana:13.1.0-25893932881-ubuntu
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - loki
+      - tempo
+      - mimir
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - shared_network
+
+  # ============================================
+  # Loki
+  # ============================================
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/loki.yml:/etc/loki/config.yml
+    networks:
+      - shared_network
+
+  # ============================================
+  # Tempo
+  # ============================================
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: tempo
+    restart: unless-stopped
+    command: -config.file=/etc/tempo/tempo.yml
+    ports:
+      - "3200:3200"
+      - "3201:4317"
+      - "3202:4318"
+    volumes:
+      - ./config/tempo.yml:/etc/tempo/tempo.yml
+    networks:
+      - shared_network
+
+  # ============================================
+  # Mimir
+  # ============================================
+  mimir:
+    image: grafana/mimir:2.17.11
+    container_name: mimir
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/mimir/mimir.yml"
+    ports:
+      - "3300:9009"
+    volumes:
+      - ./config/mimir.yml:/etc/mimir/mimir.yml
+    networks:
+      - shared_network
+
+  # ============================================
+  # Grafana Alloy
+  # ============================================
+  alloy:
+    image: grafana/alloy:v1.16.1
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+    ports:
+      - "3400:12345"
+      - "3401:4317"
+      - "3402:4318"
+    volumes:
+      - ./config/config.alloy:/etc/alloy/config.alloy
+    depends_on:
+      - loki
+      - tempo
+      - mimir
+    networks:
+      - shared_network
+
+volumes:
+  grafana_data:
+
+networks:
+  shared_network:
+    external: true
