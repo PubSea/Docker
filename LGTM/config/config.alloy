@@ -26,7 +26,7 @@ otelcol.exporter.otlp "tempo" {
 
 otelcol.exporter.otlphttp "mimir" {
   client {
-    endpoint = "http://mimir:9009/api/v1/push"
+    endpoint = "http://mimir:9009/otlp"
   }
 }
 
