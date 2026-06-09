@@ -1,1 +1,8 @@
 docker network create shared_network
+
+create these buckets in Object storage
+loki
+tempo
+mimir-alertmanager
+mimir-ruler
+mimir-blocks
