@@ -12,10 +12,13 @@ services:
       - tempo
       - mimir
     ports:
-      - "3000:3000"
+      - "2000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SERVER_DOMAIN: monitoring.sea.local
+      GF_SERVER_ROOT_URL: https://monitoring.sea.local
+      GF_SECURITY_CSRF_TRUSTED_ORIGINS: https://monitoring.sea.local
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning
