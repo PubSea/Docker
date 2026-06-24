@@ -1,0 +1,77 @@
+services:
+  seaweed-master:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-master
+    restart: unless-stopped
+    command: >
+      master
+      -ip=seaweed-master
+      -mdir=/data
+    ports:
+      - "1100:9333"
+    volumes:
+      - seaweed_master_data:/data
+    networks:
+      - shared_network
+
+  seaweed-volume:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-volume
+    restart: unless-stopped
+    depends_on:
+      - seaweed-master
+    command: >
+      volume
+      -mserver=seaweed-master:9333
+      -ip=seaweed-volume
+      -dir=/data
+      -max=100
+    volumes:
+      - seaweed_volume_data:/data
+    networks:
+      - shared_network
+
+  seaweed-filer:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-filer
+    restart: unless-stopped
+    depends_on:
+      - seaweed-master
+      - seaweed-volume
+    command: >
+      filer
+      -master=seaweed-master:9333
+      -defaultStoreDir=/data
+    ports:
+      - "1110:8888"
+    volumes:
+      - seaweed_filer_data:/data
+    networks:
+      - shared_network
+
+  seaweed-s3:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-s3
+    restart: unless-stopped
+    depends_on:
+      - seaweed-filer
+    command: >
+      s3
+      -filer=seaweed-filer:8888
+      -port=8333
+      -config=/etc/seaweedfs/s3.json
+    ports:
+      - "1120:8333"
+    volumes:
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+    networks:
+      - shared_network
+
+volumes:
+  seaweed_master_data:
+  seaweed_volume_data:
+  seaweed_filer_data:
+
+networks:
+  shared_network:
+    external: true
