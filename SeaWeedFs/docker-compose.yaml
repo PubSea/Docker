@@ -1,33 +1,106 @@
 services:
-  seaweed-master:
+
+  seaweed-master-1:
     image: chrislusf/seaweedfs:4.35
-    container_name: seaweed-master
+    container_name: seaweed-master-1
     restart: unless-stopped
     command: >
       master
-      -ip=seaweed-master
+      -ip=seaweed-master-1
       -mdir=/data
+      -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -defaultReplication=001
     ports:
-      - "1100:9333"
+      - "1101:9333"
     volumes:
-      - seaweed_master_data:/data
+      - seaweed_master1_data:/data
     networks:
       - shared_network
 
-  seaweed-volume:
+  seaweed-master-2:
     image: chrislusf/seaweedfs:4.35
-    container_name: seaweed-volume
+    container_name: seaweed-master-2
+    restart: unless-stopped
+    command: >
+      master
+      -ip=seaweed-master-2
+      -mdir=/data
+      -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -defaultReplication=001
+    volumes:
+      - seaweed_master2_data:/data
+    networks:
+      - shared_network
+
+  seaweed-master-3:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-master-3
+    restart: unless-stopped
+    command: >
+      master
+      -ip=seaweed-master-3
+      -mdir=/data
+      -peers=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -defaultReplication=001
+    volumes:
+      - seaweed_master3_data:/data
+    networks:
+      - shared_network
+
+  seaweed-volume-1:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-volume-1
     restart: unless-stopped
     depends_on:
-      - seaweed-master
+      - seaweed-master-1
+      - seaweed-master-2
+      - seaweed-master-3
     command: >
       volume
-      -mserver=seaweed-master:9333
-      -ip=seaweed-volume
+      -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -ip=seaweed-volume-1
       -dir=/data
       -max=100
     volumes:
-      - seaweed_volume_data:/data
+      - seaweed_volume1_data:/data
+    networks:
+      - shared_network
+
+  seaweed-volume-2:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-volume-2
+    restart: unless-stopped
+    depends_on:
+      - seaweed-master-1
+      - seaweed-master-2
+      - seaweed-master-3
+    command: >
+      volume
+      -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -ip=seaweed-volume-2
+      -dir=/data
+      -max=100
+    volumes:
+      - seaweed_volume2_data:/data
+    networks:
+      - shared_network
+
+  seaweed-volume-3:
+    image: chrislusf/seaweedfs:4.35
+    container_name: seaweed-volume-3
+    restart: unless-stopped
+    depends_on:
+      - seaweed-master-1
+      - seaweed-master-2
+      - seaweed-master-3
+    command: >
+      volume
+      -mserver=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
+      -ip=seaweed-volume-3
+      -dir=/data
+      -max=100
+    volumes:
+      - seaweed_volume3_data:/data
     networks:
       - shared_network
 
@@ -36,16 +109,16 @@ services:
     container_name: seaweed-filer
     restart: unless-stopped
     depends_on:
-      - seaweed-master
-      - seaweed-volume
+      - seaweed-volume-1
+      - seaweed-volume-2
+      - seaweed-volume-3
     command: >
       filer
-      -master=seaweed-master:9333
-      -defaultStoreDir=/data
+      -master=seaweed-master-1:9333,seaweed-master-2:9333,seaweed-master-3:9333
     ports:
       - "1110:8888"
     volumes:
-      - seaweed_filer_data:/data
+      - ./filer.toml:/etc/seaweedfs/filer.toml:ro
     networks:
       - shared_network
 
@@ -68,9 +141,13 @@ services:
       - shared_network
 
 volumes:
-  seaweed_master_data:
-  seaweed_volume_data:
-  seaweed_filer_data:
+  seaweed_master1_data:
+  seaweed_master2_data:
+  seaweed_master3_data:
+
+  seaweed_volume1_data:
+  seaweed_volume2_data:
+  seaweed_volume3_data:
 
 networks:
   shared_network:

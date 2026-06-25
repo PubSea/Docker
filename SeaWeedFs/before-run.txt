@@ -1,1 +1,17 @@
 docker network create shared_network
+
+Create a database in postgres named seaweedfs
+
+Run
+CREATE TABLE IF NOT EXISTS filemeta (
+    dirhash BIGINT,
+    name VARCHAR(65535),
+    directory VARCHAR(65535),
+    meta BYTEA,
+    PRIMARY KEY (dirhash, name)
+);
+
+CREATE TABLE IF NOT EXISTS configuration (
+    id INT PRIMARY KEY,
+    value BYTEA
+);
