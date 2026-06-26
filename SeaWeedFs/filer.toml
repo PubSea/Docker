@@ -3,11 +3,12 @@ enabled = false
 
 [postgres]
 enabled = true
-hostname = "PostgresDbService"
+hostname = "PgBouncer"
 port = 5432
 username = "farshad"
 password = "fF@123456"
 database = "seaweedfs"
 sslmode = "disable"
-connection_max_idle = 100
-connection_max_open = 100
+connection_max_idle = 5
+connection_max_open = 20
+connection_max_lifetime_seconds = 300

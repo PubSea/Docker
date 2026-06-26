@@ -61,7 +61,7 @@ services:
     environment:
       SENTRY_TSDB: ""
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: PostgresDbService
+      SENTRY_POSTGRES_HOST: PgBouncer
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
@@ -82,7 +82,7 @@ services:
       - "9009:9000"
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: PostgresDbService
+      SENTRY_POSTGRES_HOST: PgBouncer
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
@@ -103,7 +103,7 @@ services:
     restart: unless-stopped
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: PostgresDbService
+      SENTRY_POSTGRES_HOST: PgBouncer
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
@@ -122,7 +122,7 @@ services:
     restart: unless-stopped
     environment:
       SENTRY_SECRET_KEY: "67%-3sy(dt34i1)=v!4&ivux##khy(vtbn^!#v1a7w)4t^huzu"
-      SENTRY_POSTGRES_HOST: PostgresDbService
+      SENTRY_POSTGRES_HOST: PgBouncer
       SENTRY_POSTGRES_PORT: 5432
       SENTRY_DB_USER: farshad
       SENTRY_DB_PASSWORD: fF@123456
