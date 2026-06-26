@@ -16,6 +16,7 @@ docker network create shared_network
 
 
 ## 2. Create these buckets in Object storage
+> Change object storage service name and its related port, $\color{#ff7}{access key}$ and $\color{#ff7}{secret}$ in whole project according to your object storage credentials
 #### loki
 #### tempo
 #### mimir-alertmanager

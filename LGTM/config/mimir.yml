@@ -7,10 +7,10 @@ blocks_storage:
   backend: s3
 
   s3:
-    endpoint: minio:9000
+    endpoint: seaweed-s3:8333
     bucket_name: mimir-blocks
-    access_key_id: ROOTUSER
-    secret_access_key: CHANGEME123
+    access_key_id: admin
+    secret_access_key: farshad123456
     insecure: true
     native_aws_auth_enabled: false
 
@@ -18,10 +18,10 @@ ruler_storage:
   backend: s3
 
   s3:
-    endpoint: minio:9000
+    endpoint: seaweed-s3:8333
     bucket_name: mimir-ruler
-    access_key_id: ROOTUSER
-    secret_access_key: CHANGEME123
+    access_key_id: admin
+    secret_access_key: farshad123456
     insecure: true
     native_aws_auth_enabled: false
 
@@ -29,10 +29,10 @@ alertmanager_storage:
   backend: s3
 
   s3:
-    endpoint: minio:9000
+    endpoint: seaweed-s3:8333
     bucket_name: mimir-alertmanager
-    access_key_id: ROOTUSER
-    secret_access_key: CHANGEME123
+    access_key_id: admin
+    secret_access_key: farshad123456
     insecure: true
     native_aws_auth_enabled: false
 
