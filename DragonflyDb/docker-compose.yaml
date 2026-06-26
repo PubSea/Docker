@@ -1,0 +1,64 @@
+x-dragonfly-common: &dragonfly-common
+  image: ghcr.io/dragonflydb/dragonfly:v1.39.0
+  restart: unless-stopped
+  ulimits:
+    memlock:
+      soft: -1
+      hard: -1
+  healthcheck:
+    test: ["CMD", "redis-cli", "-a", "farshad123456", "PING"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 20s
+  networks:
+    - shared_network
+
+services:
+  dragonfly-primary:
+    <<: *dragonfly-common
+    container_name: dragonfly-primary
+    command:
+      - --requirepass=farshad123456
+      - --dir=/data
+    ports:
+      - "6379:6379"
+    volumes:
+      - dragonfly-primary:/data
+
+  dragonfly-replica-1:
+    <<: *dragonfly-common
+    container_name: dragonfly-replica-1
+    depends_on:
+      dragonfly-primary:
+        condition: service_healthy
+    command:
+      - --requirepass=farshad123456
+      - --masterauth=farshad123456
+      - --replicaof=dragonfly-primary:6379
+      - --dir=/data
+    volumes:
+      - dragonfly-replica-1:/data
+
+  dragonfly-replica-2:
+    <<: *dragonfly-common
+    container_name: dragonfly-replica-2
+    depends_on:
+      dragonfly-primary:
+        condition: service_healthy
+    command:
+      - --requirepass=farshad123456
+      - --masterauth=farshad123456
+      - --replicaof=dragonfly-primary:6379
+      - --dir=/data
+    volumes:
+      - dragonfly-replica-2:/data
+
+networks:
+  shared_network:
+    external: true
+
+volumes:
+  dragonfly-primary:
+  dragonfly-replica-1:
+  dragonfly-replica-2:
