@@ -1,6 +1,8 @@
 server:
   http_listen_port: 3200
 
+stream_over_http_enabled: true
+
 distributor:
   receivers:
     otlp:
@@ -13,6 +15,8 @@ distributor:
 storage:
   trace:
     backend: s3
+    wal:
+      path: /var/tempo/wal
 
     s3:
       endpoint: seaweed-s3:8333
@@ -20,6 +24,39 @@ storage:
       access_key: admin
       secret_key: farshad123456
       insecure: true
+
+metrics_generator:
+  instance_id: tempo
+  ring:
+    kvstore:
+      store: inmemory
+
+  processor:
+    span_metrics:
+      dimensions:
+        - http.method
+        - http.route
+        - http.status_code
+      enable_target_info: true
+
+  registry:
+    collection_interval: 15s
+    stale_duration: 15m
+
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write_flush_deadline: 1m
+    remote_write_add_org_id_header: false
+    remote_write:
+      - url: http://mimir:9009/api/v1/push
+
+  metrics_ingestion_time_range_slack: 5m
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - span-metrics
 
 compactor:
   compaction:

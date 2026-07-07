@@ -21,7 +21,7 @@ services:
       GF_SECURITY_CSRF_TRUSTED_ORIGINS: https://monitoring.sea.local
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - shared_network
 
@@ -36,7 +36,8 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./config/loki.yml:/etc/loki/config.yml
+      - ./config/loki.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
     networks:
       - shared_network
 
@@ -53,7 +54,8 @@ services:
       - "3201:4317"
       - "3202:4318"
     volumes:
-      - ./config/tempo.yml:/etc/tempo/tempo.yml
+      - ./config/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
     networks:
       - shared_network
 
@@ -69,7 +71,8 @@ services:
     ports:
       - "3300:9009"
     volumes:
-      - ./config/mimir.yml:/etc/mimir/mimir.yml
+      - ./config/mimir.yml:/etc/mimir/mimir.yml:ro
+      - mimir-data:/data
     networks:
       - shared_network
 
@@ -89,7 +92,7 @@ services:
       - "3401:4317"
       - "3402:4318"
     volumes:
-      - ./config/config.alloy:/etc/alloy/config.alloy
+      - ./config/config.alloy:/etc/alloy/config.alloy:ro
     depends_on:
       - loki
       - tempo
@@ -99,6 +102,13 @@ services:
 
 volumes:
   grafana_data:
+    name: lgtm_grafana_data
+  loki-data:
+    name: lgtm_loki_data
+  mimir-data:
+    name: lgtm_mimir_data
+  tempo-data:
+    name: lgtm_tempo-data
 
 networks:
   shared_network:
