@@ -21,6 +21,7 @@ services:
       GF_SECURITY_CSRF_TRUSTED_ORIGINS: https://monitoring.sea.local
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./config/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - shared_network
