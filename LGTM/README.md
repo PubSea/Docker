@@ -16,7 +16,8 @@ docker network create shared_network
 
 
 ## 2. Create these buckets in Object storage
-> Change object storage service name and its related port, $\color{#ff7}{access key}$ and $\color{#ff7}{secret}$ in whole project according to your object storage credentials
+> Change object storage service name and its related port, $\color{#ff7}{access key}$ and $\color{#ff7}{secret}$ in whole project according to your object storage credentials.
+> If you use SeaWeedFs and there is no folder with name buckets by default you have to create this folder exactly with this name then create the following folders inside it!
 #### loki
 #### tempo
 #### mimir-alertmanager
