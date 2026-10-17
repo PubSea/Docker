@@ -33,10 +33,16 @@ metrics_generator:
 
   processor:
     span_metrics:
+      # Classic (fallback) buckets in seconds. Tempo's default is only 14
+      # power-of-two buckets (2ms .. 16.4s), far too coarse for P99 / P99.9.
+      histogram_buckets: [0.001, 0.0025, 0.005, 0.0075, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 15, 20, 30, 60]
       dimensions:
         - http.method
         - http.route
         - http.status_code
+        # newer OTel semantic conventions
+        - http.request.method
+        - http.response.status_code
       enable_target_info: true
 
   registry:
@@ -49,6 +55,7 @@ metrics_generator:
     remote_write_add_org_id_header: false
     remote_write:
       - url: http://mimir:9009/api/v1/push
+        send_exemplars: true
 
   metrics_ingestion_time_range_slack: 5m
 
@@ -57,6 +64,9 @@ overrides:
     metrics_generator:
       processors:
         - span-metrics
+      # "both" = native (high-resolution, ~5% max error) + classic histograms.
+      # Native histograms are what make P99.9 accurate.
+      generate_native_histograms: both
 
 compactor:
   compaction:

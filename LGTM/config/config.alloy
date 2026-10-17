@@ -1,3 +1,5 @@
+// OTLP in (gRPC :4317, HTTP :4318) -> batch -> Tempo (traces), Mimir (metrics), Loki (logs)
+
 otelcol.receiver.otlp "default" {
   grpc {
     endpoint = "0.0.0.0:4317"
@@ -8,8 +10,16 @@ otelcol.receiver.otlp "default" {
   }
 
   output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
     metrics = [otelcol.exporter.otlphttp.mimir.input]
-    logs    = [otelcol.exporter.loki.default.input]
+    logs    = [otelcol.exporter.otlphttp.loki.input]
     traces  = [otelcol.exporter.otlp.tempo.input]
   }
 }
@@ -30,12 +40,10 @@ otelcol.exporter.otlphttp "mimir" {
   }
 }
 
-otelcol.exporter.loki "default" {
-  forward_to = [loki.write.default.receiver]
-}
-
-loki.write "default" {
-  endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
+// Loki's native OTLP endpoint: service.name becomes the service_name label,
+// trace_id / span_id / attributes become structured metadata (no JSON blobs).
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
   }
 }

@@ -49,3 +49,9 @@ alertmanager:
 ingester:
   ring:
     replication_factor: 1
+
+limits:
+  # Required to store the native histograms Tempo sends (used for P99/P99.9)
+  native_histograms_ingestion_enabled: true
+  # Store exemplars so you can jump from a latency spike to the trace
+  max_global_exemplars_per_user: 100000
