@@ -47,3 +47,30 @@ otelcol.exporter.otlphttp "loki" {
     endpoint = "http://loki:3100/otlp"
   }
 }
+
+// ---------------------------------------------------------------------------
+// NATS JetStream cluster (../NATS): scrape the prometheus-nats-exporter
+// sidecars on shared_network and write the samples to Mimir, the default
+// Grafana datasource. Source of truth: NATS/monitoring/alloy-nats.alloy
+// Apply after editing: curl -X POST http://localhost:3400/-/reload
+// Targets that are not running yet simply report up == 0.
+// ---------------------------------------------------------------------------
+prometheus.scrape "nats" {
+  job_name        = "nats"
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+
+  targets = [
+    {"__address__" = "nats-1-exporter:7777"},
+    {"__address__" = "nats-2-exporter:7777"},
+    {"__address__" = "nats-3-exporter:7777"},
+  ]
+
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+  }
+}
