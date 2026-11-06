@@ -1,0 +1,22 @@
+{
+  "durable_name": "order-processor",
+  "description": "Example durable pull consumer for order workers",
+  "filter_subject": "orders.>",
+  "deliver_policy": "all",
+  "ack_policy": "explicit",
+  "ack_wait": 30000000000,
+  "backoff": [
+    30000000000,
+    60000000000,
+    120000000000,
+    300000000000,
+    600000000000
+  ],
+  "max_deliver": 10,
+  "max_ack_pending": 1000,
+  "max_waiting": 512,
+  "max_batch": 500,
+  "max_expires": 30000000000,
+  "replay_policy": "instant",
+  "num_replicas": 0
+}

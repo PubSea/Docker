@@ -1,0 +1,7 @@
+# Generated on each machine by scripts/setup.sh and scripts/backup.sh.
+# They hold private keys, passwords, password hashes and message data:
+# never commit them (back them up encrypted instead, see README "Backups").
+.env
+certs/
+secrets/
+backups/

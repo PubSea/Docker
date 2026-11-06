@@ -1,0 +1,170 @@
+# Unit tests for nats-alerts.yml:  promtool test rules nats-alerts.test.yml
+# Input series mirror what prometheus-nats-exporter 0.20.3 really emits in each
+# situation (observed on NATS 2.15.2 while stopping servers).
+rule_files:
+- nats-alerts.yml
+evaluation_interval: 15s
+tests:
+- name: healthy cluster raises nothing
+  interval: 15s
+  input_series:
+  - series: up{job="nats",instance="nats-1-exporter:7777"}
+    values: 1x40
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-1"}
+    values: '0x40'
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-2"}
+    values: '0x40'
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-3"}
+    values: '0x40'
+  - series: jetstream_stream_last_seq{job="nats",account="APP",stream_name="ORDERS",server_name="nats-1"}
+    values: 100+10x40
+  - series: jetstream_stream_last_seq{job="nats",account="APP",stream_name="ORDERS",server_name="nats-2"}
+    values: 100+10x40
+  - series: jetstream_stream_last_seq{job="nats",account="APP",stream_name="ORDERS",server_name="nats-3"}
+    values: 100+10x40
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: NatsJetStreamQuorumLost
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: NatsServerDown
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: NatsServerNotReady
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: NatsStreamReplicaUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: NatsStreamReplicaLagging
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: NatsMetricsScrapeFailing
+    exp_alerts: []
+- name: one server down -> warning, quorum intact
+  interval: 15s
+  input_series:
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-1"}
+    values: '0x20'
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-2"}
+    values: '0x20'
+  - series: gnatsd_healthz_status_value{job="nats",server_id="nats-3",value="unreachable"}
+    values: '0x20'
+  - series: jetstream_stream_last_seq{job="nats",account="APP",stream_name="ORDERS",server_name="nats-1"}
+    values: 500x40
+  - series: jetstream_stream_last_seq{job="nats",account="APP",stream_name="ORDERS",server_name="nats-2"}
+    values: 500x40
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: NatsServerDown
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        server_id: nats-3
+      exp_annotations:
+        summary: NATS server nats-3 is down or unreachable
+        description: The exporter cannot reach the monitoring endpoint of nats-3. The remaining two servers keep quorum, but the cluster now tolerates no further failure. Check `docker compose logs nats-3` in NATS/.
+  - eval_time: 3m
+    alertname: NatsJetStreamQuorumLost
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: NatsStreamReplicaUnavailable
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        account: APP
+        stream_name: ORDERS
+      exp_annotations:
+        summary: Stream APP > ORDERS has fewer than 3 replicas reporting
+        description: Only 2 server(s) report this stream. A replica is offline or was never placed. One more failure makes the stream unwritable. Check `nats stream info ORDERS` (Cluster section).
+- name: two servers down -> quorum lost
+  interval: 15s
+  input_series:
+  - series: gnatsd_healthz_status{job="nats",server_id="nats-1"}
+    values: 0x4 1x20
+  - series: gnatsd_healthz_status_value{job="nats",server_id="nats-2",value="unreachable"}
+    values: '0x24'
+  - series: gnatsd_healthz_status_value{job="nats",server_id="nats-3",value="unreachable"}
+    values: '0x24'
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: NatsJetStreamQuorumLost
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: 'NATS JetStream: fewer than 2 of 3 servers are ready (quorum lost)'
+        description: 'Without a majority no meta, stream or consumer leader can be elected: publishes to replicated streams time out, consumers stall and stream or consumer changes are rejected. Also fires when no NATS metrics arrive at all. Bring servers back (never wipe volumes during an incident); see NATS/README.md "Failure modes and recovery".'
+  - eval_time: 4m
+    alertname: NatsServerNotReady
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: nats
+        server_id: nats-1
+      exp_annotations:
+        summary: NATS server nats-1 runs but is not ready
+        description: '/healthz fails on nats-1: no contact with a JetStream meta leader, not current with it, or a stream/consumer replica on this server is not current (catching up, filestore I/O error, ...). Run NATS/scripts/check-cluster.sh.'
+- name: no NATS metrics at all -> quorum alert (blind)
+  interval: 15s
+  input_series:
+  - series: up{job="nats",instance="nats-1-exporter:7777"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: NatsJetStreamQuorumLost
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: 'NATS JetStream: fewer than 2 of 3 servers are ready (quorum lost)'
+        description: 'Without a majority no meta, stream or consumer leader can be elected: publishes to replicated streams time out, consumers stall and stream or consumer changes are rejected. Also fires when no NATS metrics arrive at all. Bring servers back (never wipe volumes during an incident); see NATS/README.md "Failure modes and recovery".'
+  - eval_time: 3m
+    alertname: NatsMetricsScrapeFailing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: nats
+        instance: nats-1-exporter:7777
+      exp_annotations:
+        summary: NATS exporter nats-1-exporter:7777 cannot be scraped
+        description: 'No metrics from nats-1-exporter:7777 for 2m: the exporter container is down or Alloy cannot reach it on shared_network. NATS itself may be healthy. Check `docker compose ps` in NATS/.'
+- name: file storage pressure
+  interval: 1m
+  input_series:
+  - series: gnatsd_varz_jetstream_config_max_storage{job="nats",server_id="nats-1"}
+    values: 10000000000x30
+  - series: gnatsd_varz_jetstream_stats_storage{job="nats",server_id="nats-1"}
+    values: 8000000000x30
+  - series: gnatsd_varz_jetstream_config_max_storage{job="nats",server_id="nats-2"}
+    values: 10000000000x30
+  - series: gnatsd_varz_jetstream_stats_storage{job="nats",server_id="nats-2"}
+    values: 9500000000x30
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: NatsJetStreamFileStorageHigh
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: nats
+        server_id: nats-1
+      exp_annotations:
+        summary: JetStream file storage on nats-1 is 80% of max_file_store
+        description: Raise NATS_JS_MAX_FILE (and the disk behind the Docker volumes), lower stream max_bytes/max_age, or remove data. At 100% publishes fail.
+    - exp_labels:
+        severity: warning
+        job: nats
+        server_id: nats-2
+      exp_annotations:
+        summary: JetStream file storage on nats-2 is 95% of max_file_store
+        description: Raise NATS_JS_MAX_FILE (and the disk behind the Docker volumes), lower stream max_bytes/max_age, or remove data. At 100% publishes fail.
+  - eval_time: 15m
+    alertname: NatsJetStreamFileStorageCritical
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: nats
+        server_id: nats-2
+      exp_annotations:
+        summary: JetStream file storage on nats-2 is 95% full
+        description: Publishes will start failing with insufficient resources. Act now.

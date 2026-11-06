@@ -1,0 +1,248 @@
+# =============================================================================
+# NATS JetStream alerts (Prometheus rule format, also valid for the Mimir ruler).
+#
+# Metrics: prometheus-nats-exporter 0.20.3 sidecars (NATS/docker-compose.yaml),
+# scraped by Grafana Alloy as job="nats" and stored in Mimir (LGTM stack).
+# Load / update:   NATS/scripts/load-alert-rules.sh
+# Unit tests:      promtool test rules NATS/monitoring/nats-alerts.test.yml
+#
+# Exporter behaviour these rules rely on (verified against 2.15.2 / 0.20.3):
+#   gnatsd_healthz_status                 0 = /healthz ok, 1 = not ok; absent while
+#                                         the server is unreachable
+#   gnatsd_healthz_status_value{value=}   "ok" | "unavailable" | "unreachable"
+#   gnatsd_varz_*                         keep their LAST value while the server is
+#                                         unreachable: never use them for liveness
+#   jetstream_stream_*                    one series per server holding a replica
+# Thresholds are starting points; tune them to your traffic and sizing.
+# =============================================================================
+groups:
+  - name: nats-availability
+    rules:
+      - alert: NatsMetricsScrapeFailing
+        expr: up{job="nats"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS exporter {{ $labels.instance }} cannot be scraped"
+          description: >-
+            No metrics from {{ $labels.instance }} for 2m: the exporter container
+            is down or Alloy cannot reach it on shared_network. NATS itself may be
+            healthy. Check `docker compose ps` in NATS/.
+
+      - alert: NatsServerDown
+        expr: count by (server_id) (gnatsd_healthz_status_value{job="nats", value="unreachable"}) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS server {{ $labels.server_id }} is down or unreachable"
+          description: >-
+            The exporter cannot reach the monitoring endpoint of {{ $labels.server_id }}.
+            The remaining two servers keep quorum, but the cluster now tolerates no
+            further failure. Check `docker compose logs {{ $labels.server_id }}` in NATS/.
+
+      - alert: NatsServerNotReady
+        expr: gnatsd_healthz_status{job="nats"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS server {{ $labels.server_id }} runs but is not ready"
+          description: >-
+            /healthz fails on {{ $labels.server_id }}: no contact with a JetStream
+            meta leader, not current with it, or a stream/consumer replica on this
+            server is not current (catching up, filestore I/O error, ...).
+            Run NATS/scripts/check-cluster.sh.
+
+      - alert: NatsJetStreamQuorumLost
+        expr: (count(gnatsd_healthz_status{job="nats"} == 0) or vector(0)) < 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NATS JetStream: fewer than 2 of 3 servers are ready (quorum lost)"
+          description: >-
+            Without a majority no meta, stream or consumer leader can be elected:
+            publishes to replicated streams time out, consumers stall and stream or
+            consumer changes are rejected. Also fires when no NATS metrics arrive at
+            all. Bring servers back (never wipe volumes during an incident); see
+            NATS/README.md "Failure modes and recovery".
+
+      - alert: NatsJetStreamDisabled
+        expr: jetstream_server_jetstream_disabled{job="nats"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "JetStream is disabled on {{ $labels.server_name }}"
+          description: >-
+            The server runs without JetStream (for example after a storage error or
+            after being peer-removed while running). Check the server log.
+
+  - name: nats-replication
+    rules:
+      # Every stream in this cluster is expected to be R3 (provisioning enforces
+      # it). Add exclusions here for deliberate R1 streams.
+      - alert: NatsStreamReplicaUnavailable
+        expr: count by (account, stream_name) (max by (account, stream_name, server_name) (jetstream_stream_last_seq{job="nats"})) < 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stream {{ $labels.account }} > {{ $labels.stream_name }} has fewer than 3 replicas reporting"
+          description: >-
+            Only {{ $value }} server(s) report this stream. A replica is offline or
+            was never placed. One more failure makes the stream unwritable.
+            Check `nats stream info {{ $labels.stream_name }}` (Cluster section).
+
+      - alert: NatsStreamReplicaLagging
+        expr: >-
+          (max by (account, stream_name) (jetstream_stream_last_seq{job="nats"})
+          - min by (account, stream_name) (jetstream_stream_last_seq{job="nats"})) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Replicas of {{ $labels.account }} > {{ $labels.stream_name }} are {{ $value }} messages apart"
+          description: >-
+            One replica is not catching up (slow disk, overload, network). Until it
+            does, losing another server can cost availability.
+
+  - name: nats-capacity
+    rules:
+      - alert: NatsJetStreamFileStorageHigh
+        expr: gnatsd_varz_jetstream_stats_storage{job="nats"} / gnatsd_varz_jetstream_config_max_storage{job="nats"} > 0.75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JetStream file storage on {{ $labels.server_id }} is {{ $value | humanizePercentage }} of max_file_store"
+          description: >-
+            Raise NATS_JS_MAX_FILE (and the disk behind the Docker volumes), lower
+            stream max_bytes/max_age, or remove data. At 100% publishes fail.
+
+      - alert: NatsJetStreamFileStorageCritical
+        expr: gnatsd_varz_jetstream_stats_storage{job="nats"} / gnatsd_varz_jetstream_config_max_storage{job="nats"} > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "JetStream file storage on {{ $labels.server_id }} is {{ $value | humanizePercentage }} full"
+          description: "Publishes will start failing with insufficient resources. Act now."
+
+      - alert: NatsJetStreamMemoryStorageHigh
+        expr: >-
+          gnatsd_varz_jetstream_stats_memory{job="nats"} / gnatsd_varz_jetstream_config_max_memory{job="nats"} > 0.8
+          and gnatsd_varz_jetstream_config_max_memory{job="nats"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JetStream memory storage on {{ $labels.server_id }} is {{ $value | humanizePercentage }} of max_memory_store"
+          description: "Memory-backed streams are close to NATS_JS_MAX_MEMORY."
+
+      - alert: NatsJetStreamReservationsHigh
+        expr: gnatsd_varz_jetstream_stats_reserved_storage{job="nats"} / gnatsd_varz_jetstream_config_max_storage{job="nats"} > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stream max_bytes reservations on {{ $labels.server_id }} use {{ $value | humanizePercentage }} of max_file_store"
+          description: >-
+            New streams or larger max_bytes will be rejected on this server even if
+            the disk is mostly empty. Rebalance limits or raise NATS_JS_MAX_FILE.
+
+      - alert: NatsAccountStorageHigh
+        expr: >-
+          max by (account) (jetstream_account_storage_used{job="nats"})
+          / max by (account) (jetstream_account_max_storage{job="nats"} > 0) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Account {{ $labels.account }} uses {{ $value | humanizePercentage }} of its JetStream file limit"
+          description: "R3 streams count three times against max_file (config/accounts.conf)."
+
+      - alert: NatsStreamNearByteLimit
+        expr: >-
+          max by (account, stream_name) (jetstream_stream_total_bytes{job="nats"})
+          / max by (account, stream_name) (jetstream_stream_limit_bytes{job="nats"} > 0) > 0.9
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Stream {{ $labels.stream_name }} is at {{ $value | humanizePercentage }} of max_bytes"
+          description: >-
+            With discard=old the oldest messages are now being dropped; consumers
+            that lag behind may lose data. With discard=new publishes will fail.
+
+      - alert: NatsProcessMemoryHigh
+        expr: gnatsd_varz_mem{job="nats"} / gnatsd_varz_gomemlimit{job="nats"} > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS {{ $labels.server_id }} uses {{ $value | humanizePercentage }} of GOMEMLIMIT"
+          description: >-
+            The Go GC is working hard and the container is close to its memory
+            limit (OOM kill). Raise NATS_MEMORY_LIMIT/NATS_GOMEMLIMIT or find the
+            cause (memory streams, slow consumers, large pending buffers).
+
+      - alert: NatsCPUHigh
+        expr: gnatsd_varz_cpu{job="nats"} / gnatsd_varz_gomaxprocs{job="nats"} > 80
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS {{ $labels.server_id }} CPU at {{ $value | printf \"%.0f\" }}% of its cores"
+          description: "Keep 20-30% headroom so a node can absorb leadership and catch-up work when a peer fails."
+
+      - alert: NatsConnectionsHigh
+        expr: gnatsd_varz_connections{job="nats"} / gnatsd_varz_max_connections{job="nats"} > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS {{ $labels.server_id }} at {{ $value | humanizePercentage }} of max_connections"
+          description: "New connections will be refused at 100%. Look for connection leaks or raise max_connections and NATS_NOFILE."
+
+      - alert: NatsSlowConsumers
+        expr: increase(gnatsd_varz_slow_consumers{job="nats"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow consumers on {{ $labels.server_id }}"
+          description: >-
+            Clients did not read fast enough and were disconnected or lost core NATS
+            messages. Check `nats server report connections` for the culprits.
+
+      - alert: NatsDiskIOSaturated
+        expr: gnatsd_varz_disk_io_wait_stats_waiters{job="nats"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JetStream disk I/O on {{ $labels.server_id }} is saturated"
+          description: "Operations are queueing for disk I/O slots (max_concurrent_io). The disk is too slow for the load (sync_interval: always makes this more likely)."
+
+  - name: nats-consumers
+    rules:
+      - alert: NatsConsumerBacklogHigh
+        expr: max by (account, stream_name, consumer_name) (jetstream_consumer_num_pending{job="nats"}) > 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer {{ $labels.stream_name }} > {{ $labels.consumer_name }} has {{ $value }} unprocessed messages"
+          description: "Workers are not keeping up (or are down). Tune the threshold per consumer."
+
+      - alert: NatsConsumerRedeliveriesHigh
+        expr: max by (account, stream_name, consumer_name) (jetstream_consumer_num_redelivered{job="nats"}) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer {{ $labels.stream_name }} > {{ $labels.consumer_name }} has {{ $value }} messages in redelivery"
+          description: "Messages are not being acknowledged in time (processing errors, ack_wait too short, poison messages). Consider max_deliver + dead-letter handling."

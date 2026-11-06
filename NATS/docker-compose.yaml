@@ -1,0 +1,340 @@
+# =============================================================================
+# NATS JetStream cluster: three servers on ONE Docker host.
+#
+# * Three processes give quorum (tolerates one failed server), R3 replication
+#   and rolling restarts. They do NOT give host-level high availability: the
+#   host, kernel, disk and Docker daemon are shared single points of failure.
+#   See README.md "Single host vs. production".
+# * Bootstrap once before `up`: scripts/setup.sh (.env, TLS PKI, credentials).
+# * Applications on shared_network connect with TLS to
+#     tls://nats-1:4222,tls://nats-2:4222,tls://nats-3:4222
+# =============================================================================
+name: nats
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-security: &security
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+# ---------------------------------------------------------------------------
+# NATS servers
+# ---------------------------------------------------------------------------
+x-nats-server: &nats-server
+  image: ${NATS_IMAGE:-nats:2.15.2-alpine3.22@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f}
+  restart: unless-stopped
+  # Non-root: the UID/GID that owns ./secrets and ./certs (written to .env by
+  # scripts/setup.sh). The data volume is chowned by the nats-N-init job.
+  user: "${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}:${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}"
+  command: ["nats-server", "--config", "/etc/nats/nats-server.conf"]
+  # SIGUSR2 = lame duck mode: hand off leadership, drain clients, then exit.
+  # Must exceed lame_duck_grace_period + lame_duck_duration (10s + 30s).
+  stop_signal: SIGUSR2
+  stop_grace_period: 60s
+  <<: *security
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  ulimits:
+    # File descriptors: connections + ~2 per stream. Must not exceed the
+    # Docker daemon's own hard limit.
+    nofile: { soft: "${NATS_NOFILE:-65536}", hard: "${NATS_NOFILE:-65536}" }
+  logging: *logging
+  deploy:
+    resources:
+      limits:
+        cpus: "${NATS_CPUS:-2}"
+        memory: ${NATS_MEMORY_LIMIT:-2g}
+  configs:
+    - source: nats_server_conf
+      target: /etc/nats/nats-server.conf
+    - source: nats_accounts_conf
+      target: /etc/nats/accounts.conf
+  healthcheck:
+    # Process liveness + JetStream subsystem enabled. Deliberately independent
+    # of peers: losing quorum must not flag healthy processes as unhealthy.
+    # Readiness and quorum are checked by scripts/check-cluster.sh and alerts.
+    test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null \"http://$${NATS_MONITOR_ADDR}/healthz?js-enabled-only=true\""]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
+    start_interval: 2s
+
+# Environment shared by every server. Sizes are assumptions; see .env.example.
+x-nats-env: &nats-env
+  NATS_JS_MAX_MEMORY: ${NATS_JS_MAX_MEMORY:-512MB}
+  NATS_JS_MAX_FILE: ${NATS_JS_MAX_FILE:-10GB}
+  # Soft memory target for the Go runtime, ~80% of NATS_MEMORY_LIMIT.
+  GOMEMLIMIT: ${NATS_GOMEMLIMIT:-1600MiB}
+
+# One-shot job per node: make the (root-owned) named volume writable by the
+# non-root server UID. Runs before its server on `docker compose up`.
+x-nats-init: &nats-init
+  image: ${NATS_IMAGE:-nats:2.15.2-alpine3.22@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f}
+  user: "0:0"
+  restart: "no"
+  network_mode: none
+  read_only: true
+  cap_drop: [ALL]
+  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+  environment:
+    NATS_UID: ${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}
+    NATS_GID: ${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}
+  entrypoint: ["/bin/sh", "-c"]
+  command:
+    - |
+      set -eu
+      owner="$${NATS_UID}:$${NATS_GID}"
+      if [ "$$(stat -c %u:%g /data)" != "$$owner" ]; then
+        echo "nats-init: chown -R $$owner /data"
+        chown -R "$$owner" /data
+      fi
+      chmod 0750 /data
+
+# prometheus-nats-exporter sidecar: reads one server's private monitoring
+# endpoint and serves Prometheus metrics on shared_network:7777 for Alloy.
+x-nats-exporter: &nats-exporter
+  image: ${NATS_EXPORTER_IMAGE:-natsio/prometheus-nats-exporter:0.20.3@sha256:4b8ddc1c86fec360b5cd3d5e1fbc6fb52bdafd5805bba3901cc52926538af255}
+  restart: unless-stopped
+  user: "65534:65534"
+  <<: *security
+  logging: *logging
+  deploy:
+    resources:
+      limits:
+        cpus: "0.25"
+        memory: 128m
+  healthcheck:
+    test: ["CMD", "nc", "-z", "127.0.0.1", "7777"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+  networks:
+    - shared_network
+    - cluster
+
+services:
+  nats-1-init:
+    <<: *nats-init
+    volumes:
+      - nats-1-data:/data
+
+  nats-2-init:
+    <<: *nats-init
+    volumes:
+      - nats-2-data:/data
+
+  nats-3-init:
+    <<: *nats-init
+    volumes:
+      - nats-3-data:/data
+
+  nats-1:
+    <<: *nats-server
+    container_name: nats-1
+    depends_on:
+      nats-1-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *nats-env
+      NATS_SERVER_NAME: nats-1
+      NATS_CLUSTER_ADDR: nats-1-cluster:6222
+      NATS_MONITOR_ADDR: nats-1-cluster:8222
+    ports:
+      - "${NATS_CLIENT_BIND:-127.0.0.1}:${NATS_1_CLIENT_PORT:-4222}:4222"
+    volumes:
+      - nats-1-data:/data
+    secrets:
+      - { source: nats_ca_cert, target: /etc/nats/certs/ca.crt }
+      - { source: nats_1_tls_cert, target: /etc/nats/certs/server.crt }
+      - { source: nats_1_tls_key, target: /etc/nats/certs/server.key }
+      - { source: nats_server_credentials, target: /etc/nats/secrets/credentials.conf }
+    networks:
+      shared_network: {}
+      cluster:
+        aliases: [nats-1-cluster]
+
+  nats-2:
+    <<: *nats-server
+    container_name: nats-2
+    depends_on:
+      nats-2-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *nats-env
+      NATS_SERVER_NAME: nats-2
+      NATS_CLUSTER_ADDR: nats-2-cluster:6222
+      NATS_MONITOR_ADDR: nats-2-cluster:8222
+    ports:
+      - "${NATS_CLIENT_BIND:-127.0.0.1}:${NATS_2_CLIENT_PORT:-4223}:4222"
+    volumes:
+      - nats-2-data:/data
+    secrets:
+      - { source: nats_ca_cert, target: /etc/nats/certs/ca.crt }
+      - { source: nats_2_tls_cert, target: /etc/nats/certs/server.crt }
+      - { source: nats_2_tls_key, target: /etc/nats/certs/server.key }
+      - { source: nats_server_credentials, target: /etc/nats/secrets/credentials.conf }
+    networks:
+      shared_network: {}
+      cluster:
+        aliases: [nats-2-cluster]
+
+  nats-3:
+    <<: *nats-server
+    container_name: nats-3
+    depends_on:
+      nats-3-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *nats-env
+      NATS_SERVER_NAME: nats-3
+      NATS_CLUSTER_ADDR: nats-3-cluster:6222
+      NATS_MONITOR_ADDR: nats-3-cluster:8222
+    ports:
+      - "${NATS_CLIENT_BIND:-127.0.0.1}:${NATS_3_CLIENT_PORT:-4224}:4222"
+    volumes:
+      - nats-3-data:/data
+    secrets:
+      - { source: nats_ca_cert, target: /etc/nats/certs/ca.crt }
+      - { source: nats_3_tls_cert, target: /etc/nats/certs/server.crt }
+      - { source: nats_3_tls_key, target: /etc/nats/certs/server.key }
+      - { source: nats_server_credentials, target: /etc/nats/secrets/credentials.conf }
+    networks:
+      shared_network: {}
+      cluster:
+        aliases: [nats-3-cluster]
+
+  nats-1-exporter:
+    <<: *nats-exporter
+    container_name: nats-1-exporter
+    command: ["-varz", "-connz", "-routez", "-subz", "-healthz", "-jsz=all", "-use_internal_server_name", "-port", "7777", "http://nats-1-cluster:8222"]
+    depends_on: [nats-1]
+
+  nats-2-exporter:
+    <<: *nats-exporter
+    container_name: nats-2-exporter
+    command: ["-varz", "-connz", "-routez", "-subz", "-healthz", "-jsz=all", "-use_internal_server_name", "-port", "7777", "http://nats-2-cluster:8222"]
+    depends_on: [nats-2]
+
+  nats-3-exporter:
+    <<: *nats-exporter
+    container_name: nats-3-exporter
+    command: ["-varz", "-connz", "-routez", "-subz", "-healthz", "-jsz=all", "-use_internal_server_name", "-port", "7777", "http://nats-3-cluster:8222"]
+    depends_on: [nats-3]
+
+  # Operator toolbox (nats CLI), started on demand by scripts/*.sh:
+  #   docker compose run --rm nats-box app-admin stream ls
+  # It connects like an application (shared_network + TLS + password) and
+  # never joins the private cluster network.
+  nats-box:
+    image: ${NATS_BOX_IMAGE:-natsio/nats-box:0.20.2@sha256:5162fca0f56ebe6f78e612e1ded143ce978e088393476033020e6251358dba6f}
+    profiles: ["tools"]
+    user: "${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}:${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}"
+    entrypoint: ["/bin/sh", "/opt/nats-tools/nats-as.sh"]
+    working_dir: /tmp
+    <<: *security
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      NATS_URL: "tls://nats-1:4222,tls://nats-2:4222,tls://nats-3:4222"
+      NATS_CA: /run/secrets/nats_ca.crt
+      HOME: /tmp
+      XDG_CONFIG_HOME: /tmp/.config
+    secrets:
+      - { source: nats_ca_cert, target: nats_ca.crt }
+      - nats_sys_admin_password
+      - nats_app_admin_password
+      - nats_orders_publisher_password
+      - nats_orders_consumer_password
+    volumes:
+      - ./scripts/in-container:/opt/nats-tools:ro
+      - ./jetstream:/opt/jetstream:ro
+      - ./backups:/backups
+    networks:
+      - shared_network
+    logging: *logging
+
+  # Optional off-host copy of backups (scripts/backup.sh, NATS_BACKUP_REMOTE).
+  # Any rclone remote works: an S3 bucket on another host/region, SeaweedFS or
+  # MinIO S3 on a different machine, SFTP, ... Configured in secrets/rclone.conf.
+  backup-sync:
+    image: ${NATS_RCLONE_IMAGE:-rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5}
+    profiles: ["tools"]
+    user: "${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}:${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}"
+    working_dir: /tmp
+    <<: *security
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      RCLONE_CONFIG: /run/secrets/rclone.conf
+      RCLONE_CACHE_DIR: /tmp/rclone-cache
+      HOME: /tmp
+    secrets:
+      - { source: nats_rclone_conf, target: rclone.conf }
+    volumes:
+      - ./backups:/backups:ro
+    networks:
+      - shared_network
+    logging: *logging
+
+configs:
+  nats_server_conf:
+    file: ./config/nats-server.conf
+  nats_accounts_conf:
+    file: ./config/accounts.conf
+
+# All generated locally by scripts/setup.sh and gitignored (see .gitignore).
+secrets:
+  nats_ca_cert:
+    file: ./certs/ca/ca.crt
+  nats_1_tls_cert:
+    file: ./certs/nats-1/server.crt
+  nats_1_tls_key:
+    file: ./certs/nats-1/server.key
+  nats_2_tls_cert:
+    file: ./certs/nats-2/server.crt
+  nats_2_tls_key:
+    file: ./certs/nats-2/server.key
+  nats_3_tls_cert:
+    file: ./certs/nats-3/server.crt
+  nats_3_tls_key:
+    file: ./certs/nats-3/server.key
+  nats_server_credentials:
+    file: ./secrets/server/credentials.conf
+  nats_sys_admin_password:
+    file: ./secrets/users/sys-admin.password
+  nats_app_admin_password:
+    file: ./secrets/users/app-admin.password
+  nats_orders_publisher_password:
+    file: ./secrets/users/orders-publisher.password
+  nats_orders_consumer_password:
+    file: ./secrets/users/orders-consumer.password
+  # Only needed for off-host backup copies (see secrets/rclone.conf.example in README).
+  nats_rclone_conf:
+    file: ./secrets/rclone.conf
+
+volumes:
+  nats-1-data:
+    name: nats_jetstream_1
+  nats-2-data:
+    name: nats_jetstream_2
+  nats-3-data:
+    name: nats_jetstream_3
+
+networks:
+  # Application traffic (client port 4222) and metrics scraping (7777).
+  shared_network:
+    external: true
+  # Private network for routes (6222) and HTTP monitoring (8222). internal:
+  # no external connectivity, no published ports, only NATS + exporters.
+  cluster:
+    name: nats_cluster
+    driver: bridge
+    internal: true
