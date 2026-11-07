@@ -1,0 +1,83 @@
+name: pubsea-mysql
+
+x-mysql: &mysql
+  image: mysql:26.10.0
+  restart: unless-stopped
+  environment:
+    MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Create .env from .env.example}
+    MYSQL_ROOT_HOST: '%'
+  networks: [mysql_cluster]
+  healthcheck:
+    test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -h 127.0.0.1 -uroot -Nse "SELECT 1"']
+    interval: 5s
+    timeout: 5s
+    retries: 60
+    start_period: 30s
+
+services:
+  mysql-1:
+    <<: *mysql
+    hostname: mysql-1
+    command: [--server-id=1, --report-host=mysql-1, --gtid-mode=ON, --enforce-gtid-consistency=ON, --log-replica-updates=ON, --binlog-format=ROW]
+    volumes: [mysql_1:/var/lib/mysql]
+  mysql-2:
+    <<: *mysql
+    hostname: mysql-2
+    command: [--server-id=2, --report-host=mysql-2, --gtid-mode=ON, --enforce-gtid-consistency=ON, --log-replica-updates=ON, --binlog-format=ROW]
+    volumes: [mysql_2:/var/lib/mysql]
+  mysql-3:
+    <<: *mysql
+    hostname: mysql-3
+    command: [--server-id=3, --report-host=mysql-3, --gtid-mode=ON, --enforce-gtid-consistency=ON, --log-replica-updates=ON, --binlog-format=ROW]
+    volumes: [mysql_3:/var/lib/mysql]
+
+  cluster-init:
+    profiles: [tools]
+    image: mysql:26.10.0
+    restart: 'no'
+    entrypoint: [mysqlsh, --no-defaults, --js, --file, /scripts/init.js]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Create .env}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:?Create .env}
+    volumes: [./scripts:/scripts:ro]
+    networks: [mysql_cluster]
+    depends_on:
+      mysql-1: {condition: service_healthy}
+      mysql-2: {condition: service_healthy}
+      mysql-3: {condition: service_healthy}
+
+  mysql-router:
+    image: pubsea/mysql-router:26.10.0
+    build:
+      context: ./router
+    platform: linux/arm64
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, bash, -c, 'exec 3<>/dev/tcp/127.0.0.1/6446 && exec 4<>/dev/tcp/127.0.0.1/6447']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    environment:
+      MYSQL_HOST: mysql-1
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Create .env}
+    ports:
+      - '127.0.0.1:${MYSQL_RW_PORT:-6446}:6446'
+      - '127.0.0.1:${MYSQL_RO_PORT:-6447}:6447'
+    networks: [mysql_cluster, shared_network]
+    depends_on:
+      mysql-1: {condition: service_healthy}
+      mysql-2: {condition: service_healthy}
+      mysql-3: {condition: service_healthy}
+
+volumes:
+  mysql_1:
+  mysql_2:
+  mysql_3:
+
+networks:
+  mysql_cluster:
+  shared_network:
+    external: true
