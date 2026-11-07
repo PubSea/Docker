@@ -29,7 +29,8 @@ x-nats-server: &nats-server
   image: ${NATS_IMAGE:-nats:2.15.2-alpine3.22@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f}
   restart: unless-stopped
   # Non-root: the UID/GID that owns ./secrets and ./certs (written to .env by
-  # scripts/setup.sh). The data volume is chowned by the nats-N-init job.
+  # scripts/setup.sh). setup.sh also creates the data volumes and makes them
+  # writable for this UID (a throwaway `docker run --rm`, nothing is left behind).
   user: "${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}:${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}"
   command: ["nats-server", "--config", "/etc/nats/nats-server.conf"]
   # SIGUSR2 = lame duck mode: hand off leadership, drain clients, then exit.
@@ -72,32 +73,6 @@ x-nats-env: &nats-env
   # Soft memory target for the Go runtime, ~80% of NATS_MEMORY_LIMIT.
   GOMEMLIMIT: ${NATS_GOMEMLIMIT:-1600MiB}
 
-# One-shot job per node: make the (root-owned) named volume writable by the
-# non-root server UID. Runs before its server on `docker compose up`.
-x-nats-init: &nats-init
-  image: ${NATS_IMAGE:-nats:2.15.2-alpine3.22@sha256:afae2fdbe2e326c65e1246cb83b9d05d319188734f3bd577ac8072daae78a10f}
-  user: "0:0"
-  restart: "no"
-  network_mode: none
-  read_only: true
-  cap_drop: [ALL]
-  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
-  security_opt: ["no-new-privileges:true"]
-  logging: *logging
-  environment:
-    NATS_UID: ${NATS_UID:?run scripts/setup.sh (NATS_UID missing in .env)}
-    NATS_GID: ${NATS_GID:?run scripts/setup.sh (NATS_GID missing in .env)}
-  entrypoint: ["/bin/sh", "-c"]
-  command:
-    - |
-      set -eu
-      owner="$${NATS_UID}:$${NATS_GID}"
-      if [ "$$(stat -c %u:%g /data)" != "$$owner" ]; then
-        echo "nats-init: chown -R $$owner /data"
-        chown -R "$$owner" /data
-      fi
-      chmod 0750 /data
-
 # prometheus-nats-exporter sidecar: reads one server's private monitoring
 # endpoint and serves Prometheus metrics on shared_network:7777 for Alloy.
 x-nats-exporter: &nats-exporter
@@ -121,27 +96,9 @@ x-nats-exporter: &nats-exporter
     - cluster
 
 services:
-  nats-1-init:
-    <<: *nats-init
-    volumes:
-      - nats-1-data:/data
-
-  nats-2-init:
-    <<: *nats-init
-    volumes:
-      - nats-2-data:/data
-
-  nats-3-init:
-    <<: *nats-init
-    volumes:
-      - nats-3-data:/data
-
   nats-1:
     <<: *nats-server
     container_name: nats-1
-    depends_on:
-      nats-1-init:
-        condition: service_completed_successfully
     environment:
       <<: *nats-env
       NATS_SERVER_NAME: nats-1
@@ -164,9 +121,6 @@ services:
   nats-2:
     <<: *nats-server
     container_name: nats-2
-    depends_on:
-      nats-2-init:
-        condition: service_completed_successfully
     environment:
       <<: *nats-env
       NATS_SERVER_NAME: nats-2
@@ -189,9 +143,6 @@ services:
   nats-3:
     <<: *nats-server
     container_name: nats-3
-    depends_on:
-      nats-3-init:
-        condition: service_completed_successfully
     environment:
       <<: *nats-env
       NATS_SERVER_NAME: nats-3
@@ -320,12 +271,18 @@ secrets:
   nats_rclone_conf:
     file: ./secrets/rclone.conf
 
+# Created and chowned by scripts/setup.sh (idempotent). External, so Compose
+# never creates them with the wrong owner and `docker compose down -v` can never
+# delete JetStream data by accident.
 volumes:
   nats-1-data:
+    external: true
     name: nats_jetstream_1
   nats-2-data:
+    external: true
     name: nats_jetstream_2
   nats-3-data:
+    external: true
     name: nats_jetstream_3
 
 networks:

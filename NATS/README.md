@@ -1,5 +1,8 @@
 # NATS JetStream cluster
 
+> [!IMPORTANT]
+> If you do not want to read the file just run setup.sh in scripts folder!
+
 Three NATS 2.15 servers with JetStream, TLS everywhere, least-privilege accounts, health checks,
 metrics in the existing LGTM stack, idempotent stream provisioning, backups with restore drills, and
 rolling upgrades.
@@ -54,7 +57,6 @@ rolling upgrades.
 | Service | Image (pinned by tag and digest) | Networks | Purpose |
 |---|---|---|---|
 | `nats-1`, `nats-2`, `nats-3` | `nats:2.15.2-alpine3.22` | shared, cluster | JetStream servers. Client port 4222 on both networks; routes 6222 and monitoring 8222 bound to the cluster address only. |
-| `nats-N-init` | same | none | One-shot job: chowns the server's named volume to the non-root UID. |
 | `nats-N-exporter` | `natsio/prometheus-nats-exporter:0.20.3` | shared, cluster | Converts one server's monitoring endpoint into Prometheus metrics on :7777. |
 | `nats-box` (profile `tools`) | `natsio/nats-box:0.20.2` (nats CLI 0.5.1) | shared | Operator CLI used by `scripts/*.sh`, connects like an app. |
 | `backup-sync` (profile `tools`) | `rclone/rclone:1.75.2` | shared | Optional off-host copy of backups. |
@@ -122,8 +124,8 @@ accepted risk. For anything that must survive a host failure, see §16.
 
 ```bash
 cd NATS
-./scripts/setup.sh                 # .env (UID/GID), CA + node certificates, passwords + bcrypt hashes
-docker compose up -d               # 3 servers, 3 exporters (init jobs run first)
+./scripts/setup.sh                 # .env (UID/GID), certificates, passwords, data volumes
+docker compose up -d               # 3 servers, 3 exporters
 ./scripts/check-cluster.sh         # liveness, quorum, readiness, replicas -> exit 0
 ./scripts/provision-jetstream.sh   # idempotent: ORDERS stream (R3) + durable consumer
 ./scripts/validate.sh              # end-to-end test on a temporary R3 stream (non-disruptive)
@@ -319,8 +321,9 @@ password hashes from the server side
 - `cap_drop: [ALL]` and `no-new-privileges` apply to every container.
 - `tmpfs` is used for `/tmp`.
 - `ulimits` and CPU and memory limits are set.
-- The only privileged step is the one-shot `nats-N-init` job: `CHOWN`, `FOWNER`, and `DAC_OVERRIDE`,
-  no network, just `chown` of its own volume.
+- The only privileged step is the volume preparation in `setup.sh`: a throwaway `docker run --rm`
+  with `CHOWN`, `FOWNER`, and `DAC_OVERRIDE`, no network, that chowns each data volume once. No init
+  container stays behind.
 
 ## 9. JetStream: replication, limits, durability
 
@@ -607,7 +610,7 @@ that is not enabled here.
 |---|---|
 | Start | `docker compose up -d` |
 | Stop | `docker compose stop`. SIGUSR2 starts lame duck mode: Raft leadership moves, new connections are refused, and existing ones are closed over up to 30 s after a 10 s grace period ([rolling upgrades](https://docs.nats.io/learn/deployment/rolling-upgrades)). It takes about 1 s with no clients and up to about 40 s with many; `stop_grace_period` is 60 s. Clean host reboots need the Docker daemon's `shutdown-timeout` to be at least 60 s. |
-| Remove | `docker compose down` keeps the data volumes. **Never `down -v`**: it deletes all JetStream data. |
+| Remove | `docker compose down` keeps the data. The volumes are `external` (created by `setup.sh`), so even `down -v` does not delete them; only an explicit `docker volume rm nats_jetstream_N` does. |
 | Reload | `docker compose kill -s SIGHUP nats-1 nats-2 nats-3` applies accounts, users, permissions, TLS files, and most settings without restarting. |
 | Rolling restart | Needed for listen addresses, `store_dir`, `sync_interval`, lame duck settings, ports, limits, and image changes: `scripts/rolling-restart.sh`. |
 
@@ -649,9 +652,10 @@ and only while the other two are healthy:
 ```bash
 ./scripts/check-cluster.sh                      # the other two must be OK
 docker compose stop nats-3
-docker compose rm -f nats-3 nats-3-init         # the init container also references the volume
+docker compose rm -f nats-3
 docker volume rm nats_jetstream_3
-docker compose up -d nats-3                     # init job chowns the fresh volume
+./scripts/setup.sh                              # recreates the missing volume with the right owner
+docker compose up -d nats-3
 ./scripts/check-cluster.sh                      # wait until OK: replicas caught up from the peers
 ```
 

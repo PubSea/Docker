@@ -6,7 +6,8 @@
 #   4. probe: can a container running as that UID read the 0600 secrets and
 #      write ./backups through bind mounts? (Docker Desktop for Mac file
 #      sharing may present bind-mounted files as root-owned)
-#   5. sanity checks (shared_network, compose file)
+#   5. data volumes nats_jetstream_1..3 (created + chowned, external in compose)
+#   6. sanity checks (shared_network, compose file)
 # Run it as the non-root user that operates the stack, from any directory.
 SCRIPT_NAME=setup
 # shellcheck source=scripts/lib.sh source-path=SCRIPTDIR
@@ -54,6 +55,27 @@ else
   die "no container identity can read ./secrets or write ./backups: check Docker's file sharing settings for $NATS_DIR"
 fi
 
+# JetStream data volumes (external in docker-compose.yaml): create the missing
+# ones and make them writable for the server UID. A throwaway container does
+# it (`--rm`): no init container stays behind. Idempotent, chowns only if the
+# owner differs, never touches data otherwise. Re-run after replacing a volume.
+uid="$(env_get NATS_UID)"
+gid="$(env_get NATS_GID)"
+for n in 1 2 3; do
+  vol="nats_jetstream_$n"
+  if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+    docker volume create "$vol" >/dev/null
+    log "created volume $vol"
+  fi
+  docker run --rm --network none --user 0:0 --read-only \
+    --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER \
+    --security-opt no-new-privileges:true -e OWNER="$uid:$gid" \
+    -v "$vol:/data" --entrypoint /bin/sh "$(service_image nats-1)" -c \
+    'if [ "$(stat -c %u:%g /data)" != "$OWNER" ]; then chown -R "$OWNER" /data; echo "chowned to $OWNER"; fi; chmod 0750 /data' |
+    sed "s/^/[$vol] /" >&2
+done
+log "volumes nats_jetstream_1..3 ready for $uid:$gid"
+
 if ! docker network inspect shared_network >/dev/null 2>&1; then
   warn "external network shared_network does not exist yet. Create it once with:"
   warn "  docker network create shared_network"
@@ -62,3 +84,5 @@ fi
 compose --profile tools config --quiet
 log "docker-compose.yaml is valid"
 log "next: docker compose up -d && scripts/check-cluster.sh && scripts/provision-jetstream.sh"
+
+docker compose up -d --remove-orphans
